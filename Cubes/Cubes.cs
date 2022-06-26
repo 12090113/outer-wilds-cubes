@@ -6,6 +6,7 @@ using System.IO;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using UnityEngine.Networking;
 
 namespace Cubes
 {
@@ -14,9 +15,8 @@ namespace Cubes
         readonly float range = 5f;
         protected AudioSource audio;
         Texture2D[] blockTextures;
-        Dictionary<string, List<AudioClip>> blockAudio = new Dictionary<string, List<AudioClip>>();
+        Dictionary<string, List<AudioClip>> blockAudio = new();
         int block = 0;
-        //Material dirtMaterial;
 
         private void Start()
         {
@@ -32,36 +32,43 @@ namespace Cubes
                     blockTextures[i] = GetTexture(path);
                     blockTextures[i].filterMode = FilterMode.Point;
                     blockTextures[i].name = GetFilename(path);
-                    //ModHelper.Console.WriteLine($"texture name: " + blockTextures[i].name);
                 }
-                //dirtMaterial = new Material();
                 StartCoroutine(LateInitialize());
             };
         }
 
         private IEnumerator LateInitialize()
         {
-            yield return new WaitForEndOfFrame();
             string[] fileEntries = Directory.GetFiles(ModHelper.Manifest.ModFolderPath + "blocks/audio");
+            yield return new WaitForSecondsRealtime(1);
             for (int i = 0; i < fileEntries.Length; i++)
             {
                 string path = fileEntries[i];
                 string name = Regex.Replace(GetFilename(path), "[0-9]", "");
-                //ModHelper.Console.WriteLine($"audio name: " + name);
+                AudioClip clip = null;
+                using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip(path, UnityEngine.AudioType.OGGVORBIS))
+                {
+                    yield return www.SendWebRequest();
+
+                    if (www.isNetworkError)
+                    {
+                        ModHelper.Console.WriteLine(www.error, OWML.Common.MessageType.Error);
+                    }
+                    else
+                    {
+                        clip = DownloadHandlerAudioClip.GetContent(www);
+                        clip.name = name;
+                        Object.DontDestroyOnLoad(clip);
+                    }
+                }
                 try
                 {
-                    blockAudio.Add(name, new List<AudioClip>());
+                    blockAudio.Add(name, new List<AudioClip>() { clip });
                 }
                 catch
                 {
-                    blockAudio[name].Add(Resources.Load<AudioClip>(path));
+                    blockAudio[name].Add(clip);
                 }
-                //ModHelper.Console.WriteLine($"clip: " + blockAudio[name]);
-            }
-            //dirtMaterial = new Material();
-            foreach (KeyValuePair<string, List<AudioClip>> kvp in blockAudio)
-            {
-                ModHelper.Console.WriteLine($"Key = {0}, Value = {1}", kvp.Key, kvp.Value);
             }
         }
 
@@ -89,7 +96,6 @@ namespace Cubes
                 {
                     block = 0;
                 }
-                audio.PlayOneShot(Resources.Load<AudioClip>("C:/Users/conta/AppData/Roaming/OuterWildsModManager/OWML/Mods/12090113.Cubes/blocks/audio/gravel4.ogg"), 1f);
             }
         }
 
@@ -97,7 +103,7 @@ namespace Cubes
         {
             if (IsPlaceable(out Vector3 placeNormal, out Vector3 placePoint, out OWRigidbody targetRigidbody))
             {
-                GameObject go = MakeCube(targetRigidbody);
+                GameObject go = MakeCube(/*targetRigidbody*/);
                 PlaceObject(placeNormal, placePoint, go, targetRigidbody);
             }
         }
@@ -126,11 +132,9 @@ namespace Cubes
             gameObject.transform.SetParent(parent);
             gameObject.transform.position = point + gameObject.transform.TransformDirection(Vector3.zero);
             gameObject.transform.localPosition = Round(gameObject.transform.localPosition);
-            //if (targetRigidbody.name.Equals(gameObject.name))
-            //{
+            //if (targetRigidbody.name.Equals(gameObject.name)) {
             gameObject.transform.rotation = targetRigidbody.transform.rotation;
-            //} else
-            //{
+            //} else {
             //    gameObject.transform.rotation = Quaternion.LookRotation(normal, targetRigidbody.transform.up);
             //}
 
@@ -140,12 +144,10 @@ namespace Cubes
                 gameObject.GetComponentInChildren<OWCollider>().enabled = true;
             }
         }
-        public GameObject MakeCube(/*float size,*/OWRigidbody targetRigidbody)
+        public GameObject MakeCube(/*float size, OWRigidbody targetRigidbody*/)
         {
             GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            //Rigidbody rb = cube.AddComponent<Rigidbody>();
             string type = "stone";
-            ModHelper.Console.WriteLine($"type init: " + type);
             if (blockTextures[block].name.Equals("oak_planks"))
             {
                 type = "wood";
@@ -154,9 +156,7 @@ namespace Cubes
             {
                 type = "gravel";
             }
-            ModHelper.Console.WriteLine($"type: " + type);
             List<AudioClip> clips = blockAudio[type];
-            ModHelper.Console.WriteLine($"clips: " + clips);
             audio.PlayOneShot(clips[Random.Range(0, clips.Count-1)], 1f);
             //Vector3 fwd = transform.TransformDirection(Vector3.forward);
             cube.name = "cube";
@@ -184,13 +184,13 @@ namespace Cubes
                 Mathf.Round(vector3.y * multiplier) / multiplier,
                 Mathf.Round(vector3.z * multiplier) / multiplier);
         }
-
+        /*
         public static Texture2D LoadImage(string filepath)
         {
             Texture2D tex = new(2, 2);
             tex.LoadRawTextureData(File.ReadAllBytes(filepath));
             return tex;
-        }
+        }*/
 
         public Texture2D GetTexture(string path)
         {
