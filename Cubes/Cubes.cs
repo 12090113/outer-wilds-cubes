@@ -17,7 +17,7 @@ namespace Cubes
         Texture2D[] blockTextures;
         Dictionary<string, List<AudioClip>> blockAudio = new();
         int block = 0;
-        Transform placer;
+        FirstPersonManipulator placer;
         bool vr = false;
 
         private void Start()
@@ -72,19 +72,19 @@ namespace Cubes
                     blockAudio[name].Add(clip);
                 }
             }
-            placer = FindObjectOfType<FirstPersonManipulator>().transform;
-            if (placer != Locator.GetPlayerCamera().transform)
+            placer = FindObjectOfType<FirstPersonManipulator>();
+            if (placer.gameObject != Locator.GetPlayerCamera().gameObject)
             {
                 vr = true;
-                ModHelper.Console.WriteLine($"vr " + placer + Locator.GetPlayerCamera());
             }
         }
 
         private void Update()
         {
-            if (OWInput.IsNewlyPressed(InputLibrary.lockOn))
+            if (OWInput.IsNewlyPressed(InputLibrary.lockOn) && (!vr || placer._interactReceiver == null && placer._interactZone == null && OWInput.IsInputMode(InputMode.Character)))
             {
-                if (OWInput.IsPressed(InputLibrary.rollMode) && Physics.Raycast(placer.position, placer.forward, out RaycastHit hit, range, OWLayerMask.physicalMask | OWLayerMask.interactMask))
+                ModHelper.Console.WriteLine($"" + placer._interactReceiver);
+                if ((OWInput.IsPressed(InputLibrary.freeLook) || OWInput.IsPressed(InputLibrary.rollMode) && vr) && Physics.Raycast(placer.transform.position, placer.transform.forward, out RaycastHit hit, range, OWLayerMask.physicalMask | OWLayerMask.interactMask))
                 {
                     GameObject targetRigidbody = hit.collider.gameObject;
                     if (targetRigidbody.name.Equals("cube"))
@@ -92,7 +92,7 @@ namespace Cubes
                         Destroy(targetRigidbody.gameObject);
                     }
                 }
-                else if (Physics.Raycast(placer.position, placer.forward, range))
+                else if (Physics.Raycast(placer.transform.position, placer.transform.forward, range))
                 {
                     PlaceObjectRaycast();
                 }
@@ -104,29 +104,28 @@ namespace Cubes
                 {
                     block = 0;
                 }
-                ModHelper.Console.WriteLine(block);
             }
         }
 
         void PlaceObjectRaycast()
         {
-            if (IsPlaceable(out Vector3 placeNormal, out Vector3 placePoint, out OWRigidbody targetRigidbody))
+            if (IsPlaceable(/*out Vector3 placeNormal,*/ out Vector3 placePoint, out OWRigidbody targetRigidbody))
             {
                 GameObject go = MakeCube(/*targetRigidbody*/);
-                PlaceObject(placeNormal, placePoint, go, targetRigidbody);
+                PlaceObject(/*placeNormal,*/ placePoint, go, targetRigidbody);
             }
         }
 
-        bool IsPlaceable(out Vector3 placeNormal, out Vector3 placePoint, out OWRigidbody targetRigidbody)
+        bool IsPlaceable(/*out Vector3 placeNormal,*/ out Vector3 placePoint, out OWRigidbody targetRigidbody)
         {
-            placeNormal = Vector3.zero;
+            //placeNormal = Vector3.zero;
             placePoint = Vector3.zero;
             targetRigidbody = null;
 
-            Vector3 forward = placer.forward;
-            if (Physics.Raycast(placer.position, forward, out RaycastHit hit, range, OWLayerMask.physicalMask | OWLayerMask.interactMask))
+            Vector3 forward = placer.transform.forward;
+            if (Physics.Raycast(placer.transform.position, forward, out RaycastHit hit, range, OWLayerMask.physicalMask | OWLayerMask.interactMask))
             {
-                placeNormal = hit.normal;
+                //placeNormal = hit.normal;
                 placePoint = hit.point - forward * 0.1f;
                 targetRigidbody = hit.collider.GetAttachedOWRigidbody(false);
                 return true;
@@ -134,7 +133,7 @@ namespace Cubes
             return false;
         }
 
-        public void PlaceObject(Vector3 normal, Vector3 point, GameObject gameObject, OWRigidbody targetRigidbody)
+        public void PlaceObject(/*Vector3 normal,*/ Vector3 point, GameObject gameObject, OWRigidbody targetRigidbody)
         {
             Transform parent = targetRigidbody.transform;
             gameObject.SetActive(true);
