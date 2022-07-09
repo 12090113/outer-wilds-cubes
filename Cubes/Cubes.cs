@@ -17,6 +17,8 @@ namespace Cubes
         Texture2D[] blockTextures;
         Dictionary<string, List<AudioClip>> blockAudio = new();
         int block = 0;
+        Transform placer;
+        bool vr = false;
 
         private void Start()
         {
@@ -70,13 +72,19 @@ namespace Cubes
                     blockAudio[name].Add(clip);
                 }
             }
+            placer = FindObjectOfType<FirstPersonManipulator>().transform;
+            if (placer != Locator.GetPlayerCamera().transform)
+            {
+                vr = true;
+                ModHelper.Console.WriteLine($"vr " + placer + Locator.GetPlayerCamera());
+            }
         }
 
         private void Update()
         {
-            if (Mouse.current.leftButton.wasPressedThisFrame)
+            if (OWInput.IsNewlyPressed(InputLibrary.lockOn))
             {
-                if (OWInput.IsPressed(InputLibrary.freeLook) && Physics.Raycast(Locator.GetPlayerCamera().transform.position, Locator.GetPlayerCamera().transform.forward, out RaycastHit hit, range, OWLayerMask.physicalMask | OWLayerMask.interactMask))
+                if (OWInput.IsPressed(InputLibrary.rollMode) && Physics.Raycast(placer.position, placer.forward, out RaycastHit hit, range, OWLayerMask.physicalMask | OWLayerMask.interactMask))
                 {
                     GameObject targetRigidbody = hit.collider.gameObject;
                     if (targetRigidbody.name.Equals("cube"))
@@ -84,18 +92,19 @@ namespace Cubes
                         Destroy(targetRigidbody.gameObject);
                     }
                 }
-                else if (Physics.Raycast(Locator.GetActiveCamera().transform.position, Locator.GetActiveCamera().transform.forward, range))
+                else if (Physics.Raycast(placer.position, placer.forward, range))
                 {
                     PlaceObjectRaycast();
                 }
             }
-            else if (Keyboard.current.tKey.wasPressedThisFrame)
+            else if (OWInput.IsPressed(InputLibrary.rollMode) && OWInput.IsNewlyPressed(InputLibrary.toolActionSecondary) && vr || Keyboard.current.tKey.wasPressedThisFrame)
             {
                 block++;
                 if (block >= blockTextures.Length)
                 {
                     block = 0;
                 }
+                ModHelper.Console.WriteLine(block);
             }
         }
 
@@ -114,8 +123,8 @@ namespace Cubes
             placePoint = Vector3.zero;
             targetRigidbody = null;
 
-            Vector3 forward = Locator.GetPlayerCamera().transform.forward;
-            if (Physics.Raycast(Locator.GetPlayerCamera().transform.position, forward, out RaycastHit hit, range, OWLayerMask.physicalMask | OWLayerMask.interactMask))
+            Vector3 forward = placer.forward;
+            if (Physics.Raycast(placer.position, forward, out RaycastHit hit, range, OWLayerMask.physicalMask | OWLayerMask.interactMask))
             {
                 placeNormal = hit.normal;
                 placePoint = hit.point - forward * 0.1f;
