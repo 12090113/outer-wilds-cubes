@@ -83,7 +83,6 @@ namespace Cubes
         {
             if (OWInput.IsNewlyPressed(InputLibrary.lockOn) && (!vr || placer._interactReceiver == null && placer._interactZone == null && OWInput.IsInputMode(InputMode.Character)))
             {
-                ModHelper.Console.WriteLine($"" + placer._interactReceiver);
                 if ((OWInput.IsPressed(InputLibrary.freeLook) || OWInput.IsPressed(InputLibrary.rollMode) && vr) && Physics.Raycast(placer.transform.position, placer.transform.forward, out RaycastHit hit, range, OWLayerMask.physicalMask | OWLayerMask.interactMask))
                 {
                     GameObject targetRigidbody = hit.collider.gameObject;
