@@ -42,7 +42,6 @@ namespace Cubes
         private IEnumerator LateInitialize()
         {
             string[] fileEntries = Directory.GetFiles(ModHelper.Manifest.ModFolderPath + "blocks/audio");
-            yield return new WaitForSecondsRealtime(1);
             for (int i = 0; i < fileEntries.Length; i++)
             {
                 string path = fileEntries[i];
@@ -72,6 +71,7 @@ namespace Cubes
                     blockAudio[name].Add(clip);
                 }
             }
+            yield return new WaitForEndOfFrame();
             placer = FindObjectOfType<FirstPersonManipulator>();
             if (placer.gameObject != Locator.GetPlayerCamera().gameObject)
             {
