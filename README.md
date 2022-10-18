@@ -1,4 +1,4 @@
-# ![Cubes](https://github.com/12090113/outer-wilds-cubes/raw/main/thumbnail.webp)
+# ![Cubes](thumbnail.webp)
 Build things with Minecraft blocks on anything anywhere in the solar system.
 
 On mouse and keyboard, place the blocks with left click, destroy them with alt+click, and switch blocks with T.
