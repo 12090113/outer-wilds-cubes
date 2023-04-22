@@ -111,7 +111,7 @@ namespace Cubes
                         Destroy(target.gameObject);
                     }
                 }
-                else if (Physics.Raycast(placer.transform.position, placer.transform.forward, range))
+                else if (placer != null && Physics.Raycast(placer.transform.position, placer.transform.forward, range))
                 {
                     PlaceObjectRaycast();
                 }
@@ -166,7 +166,7 @@ namespace Cubes
                 //placeNormal = hit.normal;
                 float back = 0.1f;
                 if (hit.collider.name == "cube")
-                    back = 0.0001f;
+                    back = 0.001f;
                 placePoint = hit.point - forward * back;
                 targetRigidbody = hit.collider.GetAttachedOWRigidbody(false);
                 placePoint = Round(targetRigidbody.transform.InverseTransformPoint(placePoint));
@@ -234,6 +234,14 @@ namespace Cubes
             
             renderer.material.SetTexture("_BumpMap", m_Normal);
             renderer.material.SetTexture("_MetallicGlossMap", m_Metal);*/
+
+            renderer.material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            renderer.material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            renderer.material.SetInt("_ZWrite", 0);
+            renderer.material.DisableKeyword("_ALPHATEST_ON");
+            renderer.material.EnableKeyword("_ALPHABLEND_ON");
+            renderer.material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            renderer.material.renderQueue = 3000;
 
             return cube;
         }
@@ -303,9 +311,15 @@ namespace Cubes
                 List<(Vector3Int, int, Transform)> list = new();
                 foreach (var blk in rb.Value)
                 {
-                    GameObject go = MakeCube(blk.Item2, false);
-                    PlaceObject(blk.Item1, go, rigidbody, blk.Item2);
-                    list.Add((blk.Item1, blk.Item2, go.transform));
+                    int blockID = blk.Item2;
+                    if (blockID >= blockTextures.Length)
+                    {
+                        blockID = 0;
+                        ModHelper.Console.WriteLine("Failed to load unkown block, defaulting to " + blockTextures[blockID].name, OWML.Common.MessageType.Warning);
+                    }
+                    GameObject go = MakeCube(blockID, false);
+                    PlaceObject(blk.Item1, go, rigidbody, blockID);
+                    list.Add((blk.Item1, blockID, go.transform));
                 }
                 placedBlocks[rigidbody] = list;
             }
