@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using UnityEngine.Networking;
 using UnityEngine.UI;
+using System.Runtime.Serialization.Formatters.Binary;
 
 namespace Cubes
 {
@@ -19,7 +20,7 @@ namespace Cubes
         int block = 0;
         FirstPersonManipulator placer;
         bool vr = false;
-        Dictionary<Transform, List<Vector3Int>> placedBlocks = new();
+        Dictionary<OWRigidbody, List<(Vector3Int, int, Transform)>> placedBlocks = new();
         Text text;
         float textTimer = 0f;
 
@@ -64,7 +65,7 @@ namespace Cubes
                     {
                         clip = DownloadHandlerAudioClip.GetContent(www);
                         clip.name = name;
-                        Object.DontDestroyOnLoad(clip);
+                        DontDestroyOnLoad(clip);
                     }
                 }
                 try
@@ -92,10 +93,22 @@ namespace Cubes
             {
                 if ((OWInput.IsPressed(InputLibrary.freeLook) || OWInput.IsPressed(InputLibrary.rollMode) && vr) && Physics.Raycast(placer.transform.position, placer.transform.forward, out RaycastHit hit, range, OWLayerMask.physicalMask | OWLayerMask.interactMask))
                 {
-                    GameObject targetRigidbody = hit.collider.gameObject;
-                    if (targetRigidbody.name.Equals("cube"))
+                    GameObject target = hit.collider.gameObject;
+                    if (target.name.Equals("cube"))
                     {
-                        Destroy(targetRigidbody.gameObject);
+                        bool blockFound = false;
+                        for (int i = 0; i < placedBlocks[hit.rigidbody.GetAttachedOWRigidbody()].Count; i++)
+                        {
+                            if (placedBlocks[hit.rigidbody.GetAttachedOWRigidbody()][i].Item3 == target.transform)
+                            {
+                                placedBlocks[hit.rigidbody.GetAttachedOWRigidbody()].RemoveAt(i);
+                                blockFound = true;
+                                break;
+                            }
+                        }
+                        if (!blockFound)
+                            ModHelper.Console.WriteLine("No block found to remove", OWML.Common.MessageType.Warning);
+                        Destroy(target.gameObject);
                     }
                 }
                 else if (Physics.Raycast(placer.transform.position, placer.transform.forward, range))
@@ -122,14 +135,22 @@ namespace Cubes
                     textTimer = 0f;
                 }
             }
+            if (Keyboard.current.oKey.wasPressedThisFrame)
+            {
+                Save();
+            }
+            if (Keyboard.current.pKey.wasPressedThisFrame)
+            {
+                Load();
+            }
         }
 
         void PlaceObjectRaycast()
         {
             if (IsPlaceable(/*out Vector3 placeNormal,*/ out Vector3 placePoint, out OWRigidbody targetRigidbody))
             {
-                GameObject go = MakeCube(/*targetRigidbody*/);
-                PlaceObject(/*placeNormal,*/ placePoint, go, targetRigidbody);
+                GameObject go = MakeCube(block, true /*targetRigidbody*/);
+                PlaceObject(/*placeNormal,*/ placePoint, go, targetRigidbody, block);
             }
         }
 
@@ -144,21 +165,22 @@ namespace Cubes
             {
                 //placeNormal = hit.normal;
                 float back = 0.1f;
-                if (hit.collider.name == name)
+                if (hit.collider.name == "cube")
                     back = 0.0001f;
                 placePoint = hit.point - forward * back;
                 targetRigidbody = hit.collider.GetAttachedOWRigidbody(false);
                 placePoint = Round(targetRigidbody.transform.InverseTransformPoint(placePoint));
-                if (placedBlocks.ContainsKey(targetRigidbody.transform) && placedBlocks[targetRigidbody.transform].Contains(Vector3Int.RoundToInt(placePoint)))
-                {
-                    return false;
-                }
+                Vector3Int intPos = Vector3Int.RoundToInt(placePoint);
+                if (placedBlocks.ContainsKey(targetRigidbody))
+                    foreach (var blk in placedBlocks[targetRigidbody])
+                        if (blk.Item1 == intPos)
+                            return false;
                 return true;
             }
             return false;
         }
 
-        public void PlaceObject(/*Vector3 normal,*/ Vector3 point, GameObject gameObject, OWRigidbody targetRigidbody)
+        public void PlaceObject(/*Vector3 normal,*/ Vector3 point, GameObject gameObject, OWRigidbody targetRigidbody, int blockIdx)
         {
             Transform parent = targetRigidbody.transform;
             gameObject.SetActive(true);
@@ -178,31 +200,34 @@ namespace Cubes
 
             try
             {
-                placedBlocks.Add(targetRigidbody.transform, new List<Vector3Int>() { Vector3Int.RoundToInt(point) });
+                placedBlocks.Add(targetRigidbody, new List<(Vector3Int, int, Transform)>() { (Vector3Int.RoundToInt(point), blockIdx, gameObject.transform) });
             }
             catch
             {
-                placedBlocks[targetRigidbody.transform].Add(Vector3Int.RoundToInt(point));
+                placedBlocks[targetRigidbody].Add((Vector3Int.RoundToInt(point), blockIdx, gameObject.transform));
             }
         }
-        public GameObject MakeCube(/*float size, OWRigidbody targetRigidbody*/)
+        public GameObject MakeCube(int blockIdx, bool sound /*float size, OWRigidbody targetRigidbody*/)
         {
             GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            string type = "stone";
-            if (blockTextures[block].name.Equals("oak_planks"))
+            if (sound)
             {
-                type = "wood";
+                string type = "stone";
+                if (blockTextures[blockIdx].name.Equals("oak_planks"))
+                {
+                    type = "wood";
+                }
+                else if (blockTextures[blockIdx].name.Equals("dirt"))
+                {
+                    type = "gravel";
+                }
+                List<AudioClip> clips = blockAudio[type];
+                audio.PlayOneShot(clips[Random.Range(0, clips.Count - 1)], 1f);
             }
-            else if (blockTextures[block].name.Equals("dirt"))
-            {
-                type = "gravel";
-            }
-            List<AudioClip> clips = blockAudio[type];
-            audio.PlayOneShot(clips[Random.Range(0, clips.Count-1)], 1f);
             //Vector3 fwd = transform.TransformDirection(Vector3.forward);
             cube.name = "cube";
             MeshRenderer renderer = cube.GetComponent<MeshRenderer>();
-            renderer.material.mainTexture = blockTextures[block];
+            renderer.material.mainTexture = blockTextures[blockIdx];
             /*
             renderer.material.EnableKeyword("_NORMALMAP");
             renderer.material.EnableKeyword("_METALLICGLOSSMAP");
@@ -212,7 +237,83 @@ namespace Cubes
 
             return cube;
         }
+
         
+        void Save()
+        {
+            Dictionary<string, List<(SVector3Int, int)>> placedBlocksSave = new();
+            foreach (var rb in placedBlocks)
+            {
+                string objPath = GetPath(rb.Key.gameObject);
+                if (placedBlocksSave.ContainsKey(objPath))
+                {
+                    ModHelper.Console.WriteLine("Multiple objects with path: " + rb.Key + "\nIgnoring all but the first", OWML.Common.MessageType.Warning);
+                    continue;
+                }
+                List<(SVector3Int, int)> list = new();
+                foreach (var blk in rb.Value)
+                    list.Add((blk.Item1, blk.Item2));
+                placedBlocksSave[objPath] = list;
+            }
+
+            var binaryFormatter = new BinaryFormatter();
+            var fi = new FileInfo(ModHelper.Manifest.ModFolderPath + "save.bin");
+
+            using (var binaryFile = fi.Create())
+            {
+                binaryFormatter.Serialize(binaryFile, placedBlocksSave);
+                binaryFile.Flush();
+            }
+            ModHelper.Console.WriteLine("Blocks saved!");
+            text.text = "Blocks saved!";
+            textTimer = 1f;
+        }
+
+        void Load()
+        {
+            var binaryFormatter = new BinaryFormatter();
+            var fi = new FileInfo(ModHelper.Manifest.ModFolderPath + "save.bin");
+
+            Dictionary<string, List<(SVector3Int, int)>> placedBlocksSave = new();
+            using (var binaryFile = fi.OpenRead())
+            {
+                placedBlocksSave = (Dictionary<string, List<(SVector3Int, int)>>)binaryFormatter.Deserialize(binaryFile);
+            }
+
+            foreach (var rb in placedBlocks)
+            {
+                foreach (var blk in rb.Value)
+                {
+                    if (blk.Item3 != null)
+                        Destroy(blk.Item3.gameObject);
+                }
+            }
+
+            placedBlocks.Clear();
+
+            foreach (var rb in placedBlocksSave)
+            {
+                GameObject thing = GameObject.Find(rb.Key);
+                if (thing == null)
+                {
+                    ModHelper.Console.WriteLine("Failed to load blocks on nonexistant object: " + rb.Key, OWML.Common.MessageType.Warning);
+                    continue;
+                }
+                OWRigidbody rigidbody = thing.GetComponent<OWRigidbody>();
+                List<(Vector3Int, int, Transform)> list = new();
+                foreach (var blk in rb.Value)
+                {
+                    GameObject go = MakeCube(blk.Item2, false);
+                    PlaceObject(blk.Item1, go, rigidbody, blk.Item2);
+                    list.Add((blk.Item1, blk.Item2, go.transform));
+                }
+                placedBlocks[rigidbody] = list;
+            }
+            ModHelper.Console.WriteLine("Blocks loaded!");
+            text.text = "Blocks loaded!";
+            textTimer = 1f;
+        }
+
         public static Vector3 Round(Vector3 vector3, int decimalPlaces = 0)
         {
             float multiplier = 1;
@@ -239,6 +340,18 @@ namespace Cubes
             int slash = path.LastIndexOf("\\") + 1;
             int dot = path.LastIndexOf(".");
             return path.Substring(slash, dot - slash);
+        }
+
+        public static string GetPath(GameObject go)
+        {
+            string name = go.name;
+            while (go.transform.parent != null)
+            {
+
+                go = go.transform.parent.gameObject;
+                name = go.name + "/" + name;
+            }
+            return name;
         }
     }
 }
