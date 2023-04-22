@@ -1,5 +1,4 @@
-﻿using OWML.Common;
-using OWML.ModHelper;
+﻿using OWML.ModHelper;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.IO;
@@ -7,6 +6,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using UnityEngine.Networking;
+using UnityEngine.UI;
 
 namespace Cubes
 {
@@ -19,6 +19,9 @@ namespace Cubes
         int block = 0;
         FirstPersonManipulator placer;
         bool vr = false;
+        Dictionary<Transform, List<Vector3Int>> placedBlocks = new();
+        Text text;
+        float textTimer = 0f;
 
         private void Start()
         {
@@ -35,6 +38,8 @@ namespace Cubes
                     blockTextures[i].filterMode = FilterMode.Point;
                     blockTextures[i].name = GetFilename(path);
                 }
+                GameObject gravText = GameObject.Find("PlayerHUD/HelmetOnUI/UICanvas/SecondaryGroup/GForce/NumericalReadout/GravityText");
+                text = Instantiate(gravText, gravText.transform).GetComponent<Text>();
                 StartCoroutine(LateInitialize());
             };
         }
@@ -71,6 +76,8 @@ namespace Cubes
                     blockAudio[name].Add(clip);
                 }
             }
+            text.text = "";
+            text.transform.localPosition = new Vector3(-160, -120, 0);
             yield return new WaitForEndOfFrame();
             placer = FindObjectOfType<FirstPersonManipulator>();
             if (placer.gameObject != Locator.GetPlayerCamera().gameObject)
@@ -81,7 +88,7 @@ namespace Cubes
 
         private void Update()
         {
-            if (OWInput.IsNewlyPressed(InputLibrary.lockOn) && (!vr || placer._interactReceiver == null && placer._interactZone == null && OWInput.IsInputMode(InputMode.Character)))
+            if (OWInput.IsNewlyPressed(InputLibrary.lockOn) && !OWInput.IsInputMode(InputMode.Menu) && (!vr || placer._interactReceiver == null && placer._interactZone == null && OWInput.IsInputMode(InputMode.Character)))
             {
                 if ((OWInput.IsPressed(InputLibrary.freeLook) || OWInput.IsPressed(InputLibrary.rollMode) && vr) && Physics.Raycast(placer.transform.position, placer.transform.forward, out RaycastHit hit, range, OWLayerMask.physicalMask | OWLayerMask.interactMask))
                 {
@@ -102,6 +109,17 @@ namespace Cubes
                 if (block >= blockTextures.Length)
                 {
                     block = 0;
+                }
+                text.text = "Selected block:\n" + blockTextures[block].name;
+                textTimer = 1f;
+            }
+            if (textTimer > 0f)
+            {
+                textTimer -= Time.deltaTime;
+                if (textTimer <= 0f)
+                {
+                    text.text = "";
+                    textTimer = 0f;
                 }
             }
         }
@@ -125,8 +143,16 @@ namespace Cubes
             if (Physics.Raycast(placer.transform.position, forward, out RaycastHit hit, range, OWLayerMask.physicalMask | OWLayerMask.interactMask))
             {
                 //placeNormal = hit.normal;
-                placePoint = hit.point - forward * 0.1f;
+                float back = 0.1f;
+                if (hit.collider.name == name)
+                    back = 0.0001f;
+                placePoint = hit.point - forward * back;
                 targetRigidbody = hit.collider.GetAttachedOWRigidbody(false);
+                placePoint = Round(targetRigidbody.transform.InverseTransformPoint(placePoint));
+                if (placedBlocks.ContainsKey(targetRigidbody.transform) && placedBlocks[targetRigidbody.transform].Contains(Vector3Int.RoundToInt(placePoint)))
+                {
+                    return false;
+                }
                 return true;
             }
             return false;
@@ -137,10 +163,9 @@ namespace Cubes
             Transform parent = targetRigidbody.transform;
             gameObject.SetActive(true);
             gameObject.transform.SetParent(parent);
-            gameObject.transform.position = point + gameObject.transform.TransformDirection(Vector3.zero);
-            gameObject.transform.localPosition = Round(gameObject.transform.localPosition);
+            gameObject.transform.localPosition = point;
             //if (targetRigidbody.name.Equals(gameObject.name)) {
-            gameObject.transform.rotation = targetRigidbody.transform.rotation;
+            gameObject.transform.rotation = parent.rotation;
             //} else {
             //    gameObject.transform.rotation = Quaternion.LookRotation(normal, targetRigidbody.transform.up);
             //}
@@ -149,6 +174,15 @@ namespace Cubes
             {
                 gameObject.GetComponentInChildren<OWCollider>().SetActivation(true);
                 gameObject.GetComponentInChildren<OWCollider>().enabled = true;
+            }
+
+            try
+            {
+                placedBlocks.Add(targetRigidbody.transform, new List<Vector3Int>() { Vector3Int.RoundToInt(point) });
+            }
+            catch
+            {
+                placedBlocks[targetRigidbody.transform].Add(Vector3Int.RoundToInt(point));
             }
         }
         public GameObject MakeCube(/*float size, OWRigidbody targetRigidbody*/)
@@ -191,13 +225,6 @@ namespace Cubes
                 Mathf.Round(vector3.y * multiplier) / multiplier,
                 Mathf.Round(vector3.z * multiplier) / multiplier);
         }
-        /*
-        public static Texture2D LoadImage(string filepath)
-        {
-            Texture2D tex = new(2, 2);
-            tex.LoadRawTextureData(File.ReadAllBytes(filepath));
-            return tex;
-        }*/
 
         public Texture2D GetTexture(string path)
         {
