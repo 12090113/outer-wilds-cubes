@@ -269,7 +269,7 @@ namespace Cubes
             //Vector3 fwd = transform.TransformDirection(Vector3.forward);
             cube.name = "cube";
             MeshRenderer renderer = cube.GetComponent<MeshRenderer>();
-            renderer.material = blockMaterials[blockName];
+            renderer.sharedMaterial = blockMaterials[blockName];
 
             return cube;
         }
