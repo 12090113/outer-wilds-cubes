@@ -15,7 +15,7 @@ namespace Cubes
     {
         readonly float range = 5f;
         protected AudioSource audio;
-        Texture2D[] blockTextures;
+        List<(Texture2D, Texture2D)> blockTextures = new();
         Dictionary<string, List<AudioClip>> blockAudio = new();
         int block = 0;
         FirstPersonManipulator placer;
@@ -31,13 +31,16 @@ namespace Cubes
                 if (loadScene != OWScene.SolarSystem) return;
                 audio = GameObject.Find("Player_Body/Audio_Player/OneShotAudio_Player").GetComponent<AudioSource>();
                 string[] fileEntries = Directory.GetFiles(ModHelper.Manifest.ModFolderPath + "blocks");
-                blockTextures = new Texture2D[fileEntries.Length];
                 for (int i = 0; i < fileEntries.Length; i++)
                 {
                     string path = fileEntries[i];
-                    blockTextures[i] = GetTexture(path);
-                    blockTextures[i].filterMode = FilterMode.Point;
-                    blockTextures[i].name = GetFilename(path);
+                    if (path.EndsWith("_n.png"))
+                    {
+                        blockTextures[blockTextures.Count-1] = (blockTextures[blockTextures.Count-1].Item1, GetTexture(path, true));
+                    } else
+                    {
+                        blockTextures.Add((GetTexture(path), null));
+                    }
                 }
                 GameObject gravText = GameObject.Find("PlayerHUD/HelmetOnUI/UICanvas/SecondaryGroup/GForce/NumericalReadout/GravityText");
                 text = Instantiate(gravText, gravText.transform).GetComponent<Text>();
@@ -119,11 +122,11 @@ namespace Cubes
             else if (OWInput.IsPressed(InputLibrary.rollMode) && OWInput.IsNewlyPressed(InputLibrary.toolActionSecondary) && vr || Keyboard.current.tKey.wasPressedThisFrame)
             {
                 block++;
-                if (block >= blockTextures.Length)
+                if (block >= blockTextures.Count)
                 {
                     block = 0;
                 }
-                text.text = "Selected block:\n" + blockTextures[block].name;
+                text.text = "Selected block:\n" + blockTextures[block].Item1.name;
                 textTimer = 1f;
             }
             if (textTimer > 0f)
@@ -213,11 +216,11 @@ namespace Cubes
             if (sound)
             {
                 string type = "stone";
-                if (blockTextures[blockIdx].name.Equals("oak_planks"))
+                if (blockTextures[blockIdx].Item1.name.Equals("oak_planks"))
                 {
                     type = "wood";
                 }
-                else if (blockTextures[blockIdx].name.Equals("dirt"))
+                else if (blockTextures[blockIdx].Item1.name.Equals("dirt"))
                 {
                     type = "gravel";
                 }
@@ -227,13 +230,12 @@ namespace Cubes
             //Vector3 fwd = transform.TransformDirection(Vector3.forward);
             cube.name = "cube";
             MeshRenderer renderer = cube.GetComponent<MeshRenderer>();
-            renderer.material.mainTexture = blockTextures[blockIdx];
-            /*
-            renderer.material.EnableKeyword("_NORMALMAP");
-            renderer.material.EnableKeyword("_METALLICGLOSSMAP");
-            
-            renderer.material.SetTexture("_BumpMap", m_Normal);
-            renderer.material.SetTexture("_MetallicGlossMap", m_Metal);*/
+            renderer.material.mainTexture = blockTextures[blockIdx].Item1;
+            if (blockTextures[blockIdx].Item2 != null)
+            {
+                renderer.material.EnableKeyword("_NORMALMAP");
+                renderer.material.SetTexture("_BumpMap", blockTextures[blockIdx].Item2);
+            }
 
             renderer.material.SetOverrideTag("RenderType", "TransparentCutout");
             renderer.material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One);
@@ -243,6 +245,8 @@ namespace Cubes
             renderer.material.DisableKeyword("_ALPHABLEND_ON");
             renderer.material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
             renderer.material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.AlphaTest;
+
+            renderer.material.enableInstancing = true;
 
             return cube;
         }
@@ -313,10 +317,10 @@ namespace Cubes
                 foreach (var blk in rb.Value)
                 {
                     int blockID = blk.Item2;
-                    if (blockID >= blockTextures.Length)
+                    if (blockID >= blockTextures.Count)
                     {
                         blockID = 0;
-                        ModHelper.Console.WriteLine("Failed to load unkown block, defaulting to " + blockTextures[blockID].name, OWML.Common.MessageType.Warning);
+                        ModHelper.Console.WriteLine("Failed to load unkown block, defaulting to " + blockTextures[blockID].Item1.name, OWML.Common.MessageType.Warning);
                     }
                     GameObject go = MakeCube(blockID, false);
                     PlaceObject(blk.Item1, go, rigidbody, blockID);
@@ -342,11 +346,13 @@ namespace Cubes
                 Mathf.Round(vector3.z * multiplier) / multiplier);
         }
 
-        public Texture2D GetTexture(string path)
+        public Texture2D GetTexture(string path, bool linear = false)
         {
             var data = File.ReadAllBytes(path);
-            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false, linear);
             texture.LoadImage(data);
+            texture.filterMode = FilterMode.Point;
+            texture.name = GetFilename(path);
             return texture;
         }
 
