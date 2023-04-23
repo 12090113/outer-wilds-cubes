@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using UnityEngine.Networking;
 using UnityEngine.UI;
 using System.Runtime.Serialization.Formatters.Binary;
+using System.Linq;
 
 namespace Cubes
 {
@@ -15,12 +16,12 @@ namespace Cubes
     {
         readonly float range = 5f;
         protected AudioSource audio;
-        List<(Texture2D, Texture2D)> blockTextures = new();
+        Dictionary<string, (Texture2D, Texture2D, Texture2D)> blockTextures = new();
         Dictionary<string, List<AudioClip>> blockAudio = new();
         int block = 0;
         FirstPersonManipulator placer;
         bool vr = false;
-        Dictionary<OWRigidbody, List<(Vector3Int, int, Transform)>> placedBlocks = new();
+        Dictionary<OWRigidbody, List<(Vector3Int, string, Transform)>> placedBlocks = new();
         Text text;
         float textTimer = 0f;
 
@@ -34,12 +35,18 @@ namespace Cubes
                 for (int i = 0; i < fileEntries.Length; i++)
                 {
                     string path = fileEntries[i];
+                    string fileName = GetFilename(path);
                     if (path.EndsWith("_n.png"))
                     {
-                        blockTextures[blockTextures.Count-1] = (blockTextures[blockTextures.Count-1].Item1, GetTexture(path, true));
+                        fileName = fileName.Substring(0, fileName.Length - 2);
+                        blockTextures[fileName] = (blockTextures[fileName].Item1, GetTexture(path, true), blockTextures[fileName].Item3);
+                    } else if (path.EndsWith("_s.png"))
+                    {
+                        fileName = fileName.Substring(0, fileName.Length - 2);
+                        blockTextures[fileName] = (blockTextures[fileName].Item1, blockTextures[fileName].Item3, GetTexture(path));
                     } else
                     {
-                        blockTextures.Add((GetTexture(path), null));
+                        blockTextures[fileName] = (GetTexture(path), null, null);
                     }
                 }
                 GameObject gravText = GameObject.Find("PlayerHUD/HelmetOnUI/UICanvas/SecondaryGroup/GForce/NumericalReadout/GravityText");
@@ -126,7 +133,7 @@ namespace Cubes
                 {
                     block = 0;
                 }
-                text.text = "Selected block:\n" + blockTextures[block].Item1.name;
+                text.text = "Selected block:\n" + blockTextures.ElementAt(block).Key;
                 textTimer = 1f;
             }
             if (textTimer > 0f)
@@ -152,8 +159,8 @@ namespace Cubes
         {
             if (IsPlaceable(/*out Vector3 placeNormal,*/ out Vector3 placePoint, out OWRigidbody targetRigidbody))
             {
-                GameObject go = MakeCube(block, true /*targetRigidbody*/);
-                PlaceObject(/*placeNormal,*/ placePoint, go, targetRigidbody, block);
+                GameObject go = MakeCube(blockTextures.ElementAt(block).Key, true /*targetRigidbody*/);
+                PlaceObject(/*placeNormal,*/ placePoint, go, targetRigidbody, blockTextures.ElementAt(block).Key);
             }
         }
 
@@ -183,7 +190,7 @@ namespace Cubes
             return false;
         }
 
-        public void PlaceObject(/*Vector3 normal,*/ Vector3 point, GameObject gameObject, OWRigidbody targetRigidbody, int blockIdx)
+        public void PlaceObject(/*Vector3 normal,*/ Vector3 point, GameObject gameObject, OWRigidbody targetRigidbody, string blockName)
         {
             Transform parent = targetRigidbody.transform;
             gameObject.SetActive(true);
@@ -203,24 +210,24 @@ namespace Cubes
 
             try
             {
-                placedBlocks.Add(targetRigidbody, new List<(Vector3Int, int, Transform)>() { (Vector3Int.RoundToInt(point), blockIdx, gameObject.transform) });
+                placedBlocks.Add(targetRigidbody, new List<(Vector3Int, string, Transform)>() { (Vector3Int.RoundToInt(point), blockName, gameObject.transform) });
             }
             catch
             {
-                placedBlocks[targetRigidbody].Add((Vector3Int.RoundToInt(point), blockIdx, gameObject.transform));
+                placedBlocks[targetRigidbody].Add((Vector3Int.RoundToInt(point), blockName, gameObject.transform));
             }
         }
-        public GameObject MakeCube(int blockIdx, bool sound /*float size, OWRigidbody targetRigidbody*/)
+        public GameObject MakeCube(string blockName, bool sound /*float size, OWRigidbody targetRigidbody*/)
         {
             GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
             if (sound)
             {
                 string type = "stone";
-                if (blockTextures[blockIdx].Item1.name.Equals("oak_planks"))
+                if (blockName.Equals("oak_planks"))
                 {
                     type = "wood";
                 }
-                else if (blockTextures[blockIdx].Item1.name.Equals("dirt"))
+                else if (blockName.Equals("dirt"))
                 {
                     type = "gravel";
                 }
@@ -230,11 +237,16 @@ namespace Cubes
             //Vector3 fwd = transform.TransformDirection(Vector3.forward);
             cube.name = "cube";
             MeshRenderer renderer = cube.GetComponent<MeshRenderer>();
-            renderer.material.mainTexture = blockTextures[blockIdx].Item1;
-            if (blockTextures[blockIdx].Item2 != null)
+            renderer.material.mainTexture = blockTextures[blockName].Item1;
+            if (blockTextures[blockName].Item2 != null)
             {
                 renderer.material.EnableKeyword("_NORMALMAP");
-                renderer.material.SetTexture("_BumpMap", blockTextures[blockIdx].Item2);
+                renderer.material.SetTexture("_BumpMap", blockTextures[blockName].Item2);
+            }
+            if (blockTextures[blockName].Item3 != null)
+            {
+                renderer.material.EnableKeyword("_METALLICGLOSSMAP");
+                renderer.material.SetTexture("_MetallicGlossMap", blockTextures[blockName].Item3);
             }
 
             renderer.material.SetOverrideTag("RenderType", "TransparentCutout");
@@ -252,21 +264,24 @@ namespace Cubes
         }
 
         
-        void Save()
+        void Save(Dictionary<string, List<(SVector3Int, string)>> placedBlocksSave = null)
         {
-            Dictionary<string, List<(SVector3Int, int)>> placedBlocksSave = new();
-            foreach (var rb in placedBlocks)
+            if (placedBlocksSave == null)
             {
-                string objPath = GetPath(rb.Key.gameObject);
-                if (placedBlocksSave.ContainsKey(objPath))
+                placedBlocksSave = new();
+                foreach (var rb in placedBlocks)
                 {
-                    ModHelper.Console.WriteLine("Multiple objects with path: " + rb.Key + "\nIgnoring all but the first", OWML.Common.MessageType.Warning);
-                    continue;
+                    string objPath = GetPath(rb.Key.gameObject);
+                    if (placedBlocksSave.ContainsKey(objPath))
+                    {
+                        ModHelper.Console.WriteLine("Multiple objects with path: " + rb.Key + "\nIgnoring all but the first", OWML.Common.MessageType.Warning);
+                        continue;
+                    }
+                    List<(SVector3Int, string)> list = new();
+                    foreach (var blk in rb.Value)
+                        list.Add((blk.Item1, blk.Item2));
+                    placedBlocksSave[objPath] = list;
                 }
-                List<(SVector3Int, int)> list = new();
-                foreach (var blk in rb.Value)
-                    list.Add((blk.Item1, blk.Item2));
-                placedBlocksSave[objPath] = list;
             }
 
             var binaryFormatter = new BinaryFormatter();
@@ -282,15 +297,36 @@ namespace Cubes
             textTimer = 1f;
         }
 
-        void Load()
+        void Load(bool retry = false)
         {
+            if (!File.Exists(ModHelper.Manifest.ModFolderPath + "save.bin"))
+            {
+                ModHelper.Console.WriteLine("No save to load");
+                return;
+            }
             var binaryFormatter = new BinaryFormatter();
             var fi = new FileInfo(ModHelper.Manifest.ModFolderPath + "save.bin");
 
-            Dictionary<string, List<(SVector3Int, int)>> placedBlocksSave = new();
-            using (var binaryFile = fi.OpenRead())
+            Dictionary<string, List<(SVector3Int, string)>> placedBlocksSave = new();
+            try
             {
-                placedBlocksSave = (Dictionary<string, List<(SVector3Int, int)>>)binaryFormatter.Deserialize(binaryFile);
+                using (var binaryFile = fi.OpenRead())
+                {
+                    placedBlocksSave = (Dictionary<string, List<(SVector3Int, string)>>)binaryFormatter.Deserialize(binaryFile);
+                }
+            }
+            catch
+            {
+                if (!retry)
+                {
+                    ModHelper.Console.WriteLine("Legacy save detected");
+                    ConvertLegacySave();
+                    return;
+                }
+                else
+                {
+                    ModHelper.Console.WriteLine("Your save's broken", OWML.Common.MessageType.Error);
+                }
             }
 
             foreach (var rb in placedBlocks)
@@ -313,24 +349,60 @@ namespace Cubes
                     continue;
                 }
                 OWRigidbody rigidbody = thing.GetComponent<OWRigidbody>();
-                List<(Vector3Int, int, Transform)> list = new();
+                List<(Vector3Int, string, Transform)> list = new();
                 foreach (var blk in rb.Value)
                 {
-                    int blockID = blk.Item2;
-                    if (blockID >= blockTextures.Count)
+                    string blockName = blk.Item2;
+                    if (!blockTextures.ContainsKey(blockName))
                     {
-                        blockID = 0;
-                        ModHelper.Console.WriteLine("Failed to load unkown block, defaulting to " + blockTextures[blockID].Item1.name, OWML.Common.MessageType.Warning);
+                        blockName = blockTextures.ElementAt(0).Key;
+                        ModHelper.Console.WriteLine("Failed to load unkown block \"" + blk.Item2 + "\", defaulting to " + blockName, OWML.Common.MessageType.Warning);
                     }
-                    GameObject go = MakeCube(blockID, false);
-                    PlaceObject(blk.Item1, go, rigidbody, blockID);
-                    list.Add((blk.Item1, blockID, go.transform));
+                    GameObject go = MakeCube(blockName, false);
+                    PlaceObject(blk.Item1, go, rigidbody, blockName);
+                    list.Add((blk.Item1, blockName, go.transform));
                 }
                 placedBlocks[rigidbody] = list;
             }
             ModHelper.Console.WriteLine("Blocks loaded!");
             text.text = "Blocks loaded!";
             textTimer = 1f;
+        }
+
+        void ConvertLegacySave()
+        {
+            var binaryFormatter = new BinaryFormatter();
+            var fi = new FileInfo(ModHelper.Manifest.ModFolderPath + "save.bin");
+
+            Dictionary<string, List<(SVector3Int, int)>> placedBlocksSaveLegacy = new();
+            using (var binaryFile = fi.OpenRead())
+            {
+                placedBlocksSaveLegacy = (Dictionary<string, List<(SVector3Int, int)>>)binaryFormatter.Deserialize(binaryFile);
+            }
+
+            Dictionary<string, List<(SVector3Int, string)>> placedBlocksSaveNew = new();
+            foreach (var rb in placedBlocksSaveLegacy)
+            {
+                List<(SVector3Int, string)> list = new();
+                foreach (var blk in rb.Value)
+                {
+                    string blockName = "";
+                    try
+                    {
+                        blockName = blockTextures.ElementAt(blk.Item2).Key;
+                    } catch
+                    {
+                        blockName = blockTextures.ElementAt(0).Key;
+                        ModHelper.Console.WriteLine("Failed to load unkown block, defaulting to " + blockName, OWML.Common.MessageType.Warning);
+                    }
+                    list.Add((blk.Item1, blockName));
+                }
+                placedBlocksSaveNew[rb.Key] = list;
+            }
+
+            ModHelper.Console.WriteLine("Upgrading save...");
+            Save(placedBlocksSaveNew);
+            Load(true);
         }
 
         public static Vector3 Round(Vector3 vector3, int decimalPlaces = 0)
