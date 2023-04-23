@@ -235,13 +235,14 @@ namespace Cubes
             renderer.material.SetTexture("_BumpMap", m_Normal);
             renderer.material.SetTexture("_MetallicGlossMap", m_Metal);*/
 
-            renderer.material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-            renderer.material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-            renderer.material.SetInt("_ZWrite", 0);
-            renderer.material.DisableKeyword("_ALPHATEST_ON");
-            renderer.material.EnableKeyword("_ALPHABLEND_ON");
+            renderer.material.SetOverrideTag("RenderType", "TransparentCutout");
+            renderer.material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One);
+            renderer.material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);
+            renderer.material.SetInt("_ZWrite", 1);
+            renderer.material.EnableKeyword("_ALPHATEST_ON");
+            renderer.material.DisableKeyword("_ALPHABLEND_ON");
             renderer.material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-            renderer.material.renderQueue = 3000;
+            renderer.material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.AlphaTest;
 
             return cube;
         }
