@@ -1,5 +1,5 @@
 # ![Cubes](thumbnail.webp)
-Build things with Minecraft blocks on anything anywhere in the solar system.
+Build things with any Minecraft blocks on anything anywhere in the solar system, and share your creations!
 
 Mouse and keyboard:
 - place the blocks with left click
@@ -13,6 +13,6 @@ NomaiVR:
 - break with roll+interact
 - switch with roll+grip
 
-Currently, this mod has 4 different types of blocks: cobblestone, dirt, oak planks, and iron blocks. You can add more by putting textures into the `blocks` folder, though they will default to the stone placing sound.
+Currently, this mod has 4 different types of blocks: cobblestone, dirt, oak planks, and iron blocks. You can add more by putting textures into the `blocks` folder, though they will default to the stone placing sound. If you want them to look fancy, you can also add textures of the same name but with `_n` appended for the normal map and `_s` for the smoothness/metallic map (like `dirt_n.png`).
 
-Your save (created by pressing O) is stored in `save.bin`. You can share this with other people to load into their game (by pressing P), but I think vendors (Steam/Epic/Xbox) might have slightly different versions of the game, so keep in mind some objects might not have blocks loaded on to them. Also, if you have added custom blocks (textures in the `blocks` folder), make sure to have all the same blocks as when the save was created, or some blocks won't be the right type.
+Your save (created by pressing O) is stored in `save.bin`. You can share this with other people to load into their game (by pressing P), but I think vendors (Steam/Epic/Xbox) might have slightly different versions of the game, so keep in mind some objects might not have blocks loaded on to them. Custom blocks in the save that you don't have will be loaded as your default block type (cobblestone, if you haven't changed it).
