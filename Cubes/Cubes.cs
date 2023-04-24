@@ -328,7 +328,6 @@ namespace Cubes
             {
                 if (blockName == "")
                 {
-                    ModHelper.Console.WriteLine("Received destruction " + blockName);
                     DestroyBlock(rigidbody, null, pos, true);
                     return;
                 }
