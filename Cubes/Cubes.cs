@@ -279,7 +279,6 @@ namespace Cubes
                 {
                     if (!remote)
                     {
-                        ModHelper.Console.WriteLine("Sending block destruction...");
                         new BlockPlacedMessage(GetPath(rb.gameObject), placedBlocks[rb][i].Item1, "").Send();
                     }
                     else
