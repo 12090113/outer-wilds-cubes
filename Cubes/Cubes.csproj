@@ -34,6 +34,9 @@
       <Private>False</Private>
     </Reference>
   </ItemGroup>
+  <Target Name ="weave qsb" AfterTargets="PostBuildEvent">
+    <Exec Command="MirrorWeaver &quot;$(TargetPath)&quot;" WorkingDirectory="..\Weaver" />
+  </Target>
   <ItemGroup>
     <Content Include="Cubes.csproj.user" />
   </ItemGroup>
