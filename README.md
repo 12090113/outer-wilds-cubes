@@ -1,5 +1,5 @@
 # ![Cubes](thumbnail.webp)
-Build things with any Minecraft blocks on anything anywhere in the solar system, and share your creations!
+Build things with any Minecraft blocks on anything anywhere in the solar system, and share your creations! And, with the pre-release version, you can build things with your friends via the QSB multiplayer mod!
 
 Mouse and keyboard:
 - place the blocks with left click
