@@ -25,6 +25,14 @@
     <None Include="blocks/**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <Reference Include="Mirror">
+      <HintPath>..\lib\Mirror.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="QSB">
+      <HintPath>..\lib\QSB.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Content Include="Cubes.csproj.user" />

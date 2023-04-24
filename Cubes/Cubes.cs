@@ -9,6 +9,11 @@ using UnityEngine.Networking;
 using UnityEngine.UI;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Linq;
+using OWML.Common;
+using QSB.Messaging;
+using static UnityEngine.GraphicsBuffer;
+using UnityEngine.InputSystem.HID;
+using System.Drawing;
 
 namespace Cubes
 {
@@ -24,11 +29,15 @@ namespace Cubes
         Dictionary<OWRigidbody, List<(Vector3Int, string, Transform)>> placedBlocks = new();
         Text text;
         float textTimer = 0f;
+        public static IModConsole modConsole;
+        public static Cubes I { get; private set; }
 
         private void Start()
         {
             LoadManager.OnCompleteSceneLoad += (scene, loadScene) =>
             {
+                I = this;
+                modConsole = ModHelper.Console;
                 if (loadScene != OWScene.SolarSystem) return;
                 audio = GameObject.Find("Player_Body/Audio_Player/OneShotAudio_Player").GetComponent<AudioSource>();
                 string[] fileEntries = Directory.GetFiles(ModHelper.Manifest.ModFolderPath + "blocks");
@@ -138,19 +147,7 @@ namespace Cubes
                     GameObject target = hit.collider.gameObject;
                     if (target.name.Equals("cube"))
                     {
-                        bool blockFound = false;
-                        for (int i = 0; i < placedBlocks[hit.rigidbody.GetAttachedOWRigidbody()].Count; i++)
-                        {
-                            if (placedBlocks[hit.rigidbody.GetAttachedOWRigidbody()][i].Item3 == target.transform)
-                            {
-                                placedBlocks[hit.rigidbody.GetAttachedOWRigidbody()].RemoveAt(i);
-                                blockFound = true;
-                                break;
-                            }
-                        }
-                        if (!blockFound)
-                            ModHelper.Console.WriteLine("No block found to remove", OWML.Common.MessageType.Warning);
-                        Destroy(target.gameObject);
+                        DestroyBlock(hit.rigidbody.GetAttachedOWRigidbody(), target);
                     }
                 }
                 else if (placer != null && Physics.Raycast(placer.transform.position, placer.transform.forward, range))
@@ -222,7 +219,7 @@ namespace Cubes
             return false;
         }
 
-        public void PlaceObject(/*Vector3 normal,*/ Vector3 point, GameObject gameObject, OWRigidbody targetRigidbody, string blockName)
+        public void PlaceObject(/*Vector3 normal,*/ Vector3 point, GameObject gameObject, OWRigidbody targetRigidbody, string blockName, bool remote = false)
         {
             Transform parent = targetRigidbody.transform;
             gameObject.SetActive(true);
@@ -248,6 +245,8 @@ namespace Cubes
             {
                 placedBlocks[targetRigidbody].Add((Vector3Int.RoundToInt(point), blockName, gameObject.transform));
             }
+            if (!remote)
+                new BlockPlacedMessage(GetPath(targetRigidbody.gameObject), Vector3Int.RoundToInt(point), blockName).Send();
         }
         public GameObject MakeCube(string blockName, bool sound /*float size, OWRigidbody targetRigidbody*/)
         {
@@ -274,6 +273,76 @@ namespace Cubes
             return cube;
         }
 
+        void DestroyBlock(OWRigidbody rb, GameObject go, Vector3Int pos = default, bool remote = false)
+        {
+            bool blockFound = false;
+            for (int i = 0; i < placedBlocks[rb].Count; i++)
+            {
+                if (!remote && placedBlocks[rb][i].Item3 == go.transform || remote && placedBlocks[rb][i].Item1 == pos)
+                {
+                    if (!remote)
+                    {
+                        ModHelper.Console.WriteLine("Sending block destruction...");
+                        new BlockPlacedMessage(GetPath(rb.gameObject), placedBlocks[rb][i].Item1, "").Send();
+                    }
+                    else
+                    {
+                        go = placedBlocks[rb][i].Item3.gameObject;
+                    }
+                    placedBlocks[rb].RemoveAt(i);
+                    blockFound = true;
+                    break;
+                }
+            }
+            if (!blockFound)
+                ModHelper.Console.WriteLine("No block found to remove", OWML.Common.MessageType.Warning);
+            Destroy(go);
+        }
+
+        void DestroyAll()
+        {
+            foreach (var rb in placedBlocks)
+            {
+                foreach (var blk in rb.Value)
+                {
+                    if (blk.Item3 != null)
+                    {
+                        Destroy(blk.Item3.gameObject);
+                    }
+                }
+            }
+            placedBlocks.Clear();
+        }
+
+        public void PlaceRemoteBlock(string path, Vector3Int pos, string blockName, bool destroyAll = false)
+        {
+            if (destroyAll)
+            {
+                DestroyAll();
+                return;
+            }
+            GameObject thing = GameObject.Find(path);
+            if (thing == null)
+            {
+                ModHelper.Console.WriteLine("Failed to place block on nonexistant object: " + path, OWML.Common.MessageType.Warning);
+                return;
+            }
+            OWRigidbody rigidbody = thing.GetComponent<OWRigidbody>();
+            if (!blockMaterials.ContainsKey(blockName))
+            {
+                if (blockName == "")
+                {
+                    ModHelper.Console.WriteLine("Received destruction " + blockName);
+                    DestroyBlock(rigidbody, null, pos, true);
+                    return;
+                }
+                string oldName = blockName;
+                blockName = blockMaterials.ElementAt(0).Key;
+                ModHelper.Console.WriteLine("Failed to load unkown block \"" + oldName + "\", defaulting to " + blockName, OWML.Common.MessageType.Warning);
+            }
+            GameObject gobj = MakeCube(blockName, false);
+            PlaceObject(pos, gobj, rigidbody, blockName, true);
+        }
         
         void Save(Dictionary<string, List<(SVector3Int, string)>> placedBlocksSave = null)
         {
@@ -340,16 +409,8 @@ namespace Cubes
                 }
             }
 
-            foreach (var rb in placedBlocks)
-            {
-                foreach (var blk in rb.Value)
-                {
-                    if (blk.Item3 != null)
-                        Destroy(blk.Item3.gameObject);
-                }
-            }
-
-            placedBlocks.Clear();
+            DestroyAll();
+            new BlockPlacedMessage(null, Vector3Int.zero, null, true).Send();
 
             foreach (var rb in placedBlocksSave)
             {
@@ -397,7 +458,7 @@ namespace Cubes
                 List<(SVector3Int, string)> list = new();
                 foreach (var blk in rb.Value)
                 {
-                    string blockName = "";
+                    string blockName;
                     try
                     {
                         blockName = blockMaterials.ElementAt(blk.Item2).Key;
