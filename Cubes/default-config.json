@@ -1,3 +1,12 @@
 {
-  "enabled": true
+  "enabled": true,
+  "settings": {
+    "autoSave": {
+      "type": "toggle",
+      "value": true,
+      "title": "Auto save/load",
+      "yes": "On",
+      "no": "Off"
+    }
+  }
 }

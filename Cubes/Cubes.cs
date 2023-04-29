@@ -9,6 +9,7 @@ using UnityEngine.Networking;
 using UnityEngine.UI;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Linq;
+using OWML.Common;
 
 namespace Cubes
 {
@@ -24,6 +25,13 @@ namespace Cubes
         Dictionary<OWRigidbody, List<(Vector3Int, string, Transform)>> placedBlocks = new();
         Text text;
         float textTimer = 0f;
+        bool autoSave = true;
+        float saveTimer = 0f;
+        List<Vector3Int> safeZone = new List<Vector3Int> { new Vector3Int(20, -45, 185), new Vector3Int(20, -46, 185),
+            new Vector3Int(21, -45, 185), new Vector3Int(21, -46, 185), new Vector3Int(21, -45, 186),
+            new Vector3Int(20, -45, 186), new Vector3Int(20, -46, 186), new Vector3Int(21, -46, 186) };
+        string spawn = "TimberHearth_Body";
+        DeathManager death;
 
         private void Start()
         {
@@ -101,7 +109,7 @@ namespace Cubes
 
                     if (www.isNetworkError)
                     {
-                        ModHelper.Console.WriteLine(www.error, OWML.Common.MessageType.Error);
+                        ModHelper.Console.WriteLine(www.error, MessageType.Error);
                     }
                     else
                     {
@@ -121,12 +129,13 @@ namespace Cubes
             }
             text.text = "";
             text.transform.localPosition = new Vector3(-160, -120, 0);
+            death = Locator.GetDeathManager();
             yield return new WaitForEndOfFrame();
             placer = FindObjectOfType<FirstPersonManipulator>();
             if (placer.gameObject != Locator.GetPlayerCamera().gameObject)
-            {
                 vr = true;
-            }
+            if (autoSave)
+                Load(false, true);
         }
 
         private void Update()
@@ -149,7 +158,7 @@ namespace Cubes
                             }
                         }
                         if (!blockFound)
-                            ModHelper.Console.WriteLine("No block found to remove", OWML.Common.MessageType.Warning);
+                            ModHelper.Console.WriteLine("No block found to remove", MessageType.Warning);
                         Destroy(target.gameObject);
                     }
                 }
@@ -177,9 +186,14 @@ namespace Cubes
                     textTimer = 0f;
                 }
             }
-            if (Keyboard.current.oKey.wasPressedThisFrame)
+            if (saveTimer > 0f)
+            {
+                saveTimer -= Time.deltaTime;
+            }
+            if (Keyboard.current.oKey.wasPressedThisFrame || (autoSave && death != null && death._isDying && saveTimer <= 0))
             {
                 Save();
+                saveTimer = 10f;
             }
             if (Keyboard.current.pKey.wasPressedThisFrame)
             {
@@ -239,14 +253,14 @@ namespace Cubes
                 gameObject.GetComponentInChildren<OWCollider>().SetActivation(true);
                 gameObject.GetComponentInChildren<OWCollider>().enabled = true;
             }
-
+            Vector3Int roundedPoint = Vector3Int.RoundToInt(point);
             try
             {
-                placedBlocks.Add(targetRigidbody, new List<(Vector3Int, string, Transform)>() { (Vector3Int.RoundToInt(point), blockName, gameObject.transform) });
+                placedBlocks.Add(targetRigidbody, new List<(Vector3Int, string, Transform)>() { (roundedPoint, blockName, gameObject.transform) });
             }
             catch
             {
-                placedBlocks[targetRigidbody].Add((Vector3Int.RoundToInt(point), blockName, gameObject.transform));
+                placedBlocks[targetRigidbody].Add((roundedPoint, blockName, gameObject.transform));
             }
         }
         public GameObject MakeCube(string blockName, bool sound /*float size, OWRigidbody targetRigidbody*/)
@@ -285,7 +299,7 @@ namespace Cubes
                     string objPath = GetPath(rb.Key.gameObject);
                     if (placedBlocksSave.ContainsKey(objPath))
                     {
-                        ModHelper.Console.WriteLine("Multiple objects with path: " + rb.Key + "\nIgnoring all but the first", OWML.Common.MessageType.Warning);
+                        ModHelper.Console.WriteLine("Multiple objects with path: " + rb.Key + "\nIgnoring all but the first", MessageType.Warning);
                         continue;
                     }
                     List<(SVector3Int, string)> list = new();
@@ -308,7 +322,7 @@ namespace Cubes
             textTimer = 1f;
         }
 
-        void Load(bool retry = false)
+        void Load(bool retry = false, bool safeSpawn = false)
         {
             if (!File.Exists(ModHelper.Manifest.ModFolderPath + "save.bin"))
             {
@@ -336,7 +350,8 @@ namespace Cubes
                 }
                 else
                 {
-                    ModHelper.Console.WriteLine("Your save's broken", OWML.Common.MessageType.Error);
+                    ModHelper.Console.WriteLine("Your save's broken", MessageType.Error);
+                    return;
                 }
             }
 
@@ -356,18 +371,20 @@ namespace Cubes
                 GameObject thing = GameObject.Find(rb.Key);
                 if (thing == null)
                 {
-                    ModHelper.Console.WriteLine("Failed to load blocks on nonexistant object: " + rb.Key, OWML.Common.MessageType.Warning);
+                    ModHelper.Console.WriteLine("Failed to load blocks on nonexistant object: " + rb.Key, MessageType.Warning);
                     continue;
                 }
                 OWRigidbody rigidbody = thing.GetComponent<OWRigidbody>();
                 List<(Vector3Int, string, Transform)> list = new();
                 foreach (var blk in rb.Value)
                 {
+                    if (safeSpawn && rb.Key == spawn && safeZone.Contains(blk.Item1))
+                        continue;
                     string blockName = blk.Item2;
                     if (!blockMaterials.ContainsKey(blockName))
                     {
                         blockName = blockMaterials.ElementAt(0).Key;
-                        ModHelper.Console.WriteLine("Failed to load unkown block \"" + blk.Item2 + "\", defaulting to " + blockName, OWML.Common.MessageType.Warning);
+                        ModHelper.Console.WriteLine("Failed to load unkown block \"" + blk.Item2 + "\", defaulting to " + blockName, MessageType.Warning);
                     }
                     GameObject go = MakeCube(blockName, false);
                     PlaceObject(blk.Item1, go, rigidbody, blockName);
@@ -404,7 +421,7 @@ namespace Cubes
                     } catch
                     {
                         blockName = blockMaterials.ElementAt(0).Key;
-                        ModHelper.Console.WriteLine("Failed to load unkown block, defaulting to " + blockName, OWML.Common.MessageType.Warning);
+                        ModHelper.Console.WriteLine("Failed to load unkown block, defaulting to " + blockName, MessageType.Warning);
                     }
                     list.Add((blk.Item1, blockName));
                 }
@@ -414,6 +431,11 @@ namespace Cubes
             ModHelper.Console.WriteLine("Upgrading save...");
             Save(placedBlocksSaveNew);
             Load(true);
+        }
+
+        public override void Configure(IModConfig config)
+        {
+            autoSave = config.GetSettingsValue<bool>("autoSave");
         }
 
         public static Vector3 Round(Vector3 vector3, int decimalPlaces = 0)
