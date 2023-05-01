@@ -15,7 +15,7 @@ NomaiVR:
 
 Currently, this mod has 4 different types of blocks: cobblestone, dirt, glass, oak planks, and iron blocks. You can add more by putting textures into the `blocks` folder, though they will default to the stone placing sound. If you want them to look fancy, you can also add textures of the same name but with `_n` appended for the normal map and `_s` for the smoothness/metallic map (like `dirt_n.png`).
 
-Your save (created by pressing O) is stored in `save.bin`. You can share this with other people to load into their game (by pressing P), but I think vendors (Steam/Epic/Xbox) might have slightly different versions of the game, so keep in mind some objects might not have blocks loaded on to them. Custom blocks in the save that you don't have will be loaded as your default block type (cobblestone, if you haven't changed it).
+Your save (created by pressing O) is stored in `save.bin`. You can share this file with other people to load into their game (by pressing P). Custom blocks in the save that you don't have will be loaded as your default block type (cobblestone, if you haven't changed it). An autosave is created when you die, and is automatically loaded when you wake up. This can be disabled in the mod settings.
 
 Included PBR textures are from here:
 https://www.planetminecraft.com/texture-pack/default-pbr-bump-normal-maps-on-vanilla/
