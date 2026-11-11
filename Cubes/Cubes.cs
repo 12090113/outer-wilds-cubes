@@ -10,6 +10,7 @@ using UnityEngine.UI;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Linq;
 using OWML.Common;
+using QSB;
 using QSB.Messaging;
 
 namespace Cubes
@@ -17,24 +18,36 @@ namespace Cubes
     public class Cubes : ModBehaviour
     {
         readonly float range = 5f;
+        const int SyncChunkSize = 256;
         protected AudioSource audio;
         Dictionary<string, Material> blockMaterials = new();
         Dictionary<string, List<AudioClip>> blockAudio = new();
         int block = 0;
         FirstPersonManipulator placer;
         bool vr = false;
+        bool ready = false;
         Dictionary<OWRigidbody, List<(Vector3Int, string, Transform)>> placedBlocks = new();
         Text text;
         float textTimer = 0f;
+        bool autoSave = true;
+        float saveTimer = 0f;
+        List<Vector3Int> safeZone = new List<Vector3Int> { new Vector3Int(20, -45, 185), new Vector3Int(20, -46, 185),
+            new Vector3Int(21, -45, 185), new Vector3Int(21, -46, 185), new Vector3Int(21, -45, 186),
+            new Vector3Int(20, -45, 186), new Vector3Int(20, -46, 186), new Vector3Int(21, -46, 186) };
+        string spawn = "TimberHearth_Body";
+        DeathManager death;
         public static IModConsole modConsole;
         public static Cubes I { get; private set; }
 
+        static bool IsMultiplayerClient => QSBCore.IsInMultiplayer && !QSBCore.IsHost;
+
         private void Start()
         {
+            I = this;
+            modConsole = ModHelper.Console;
             LoadManager.OnCompleteSceneLoad += (scene, loadScene) =>
             {
-                I = this;
-                modConsole = ModHelper.Console;
+                ready = false;
                 if (loadScene != OWScene.SolarSystem) return;
                 audio = GameObject.Find("Player_Body/Audio_Player/OneShotAudio_Player").GetComponent<AudioSource>();
                 string[] fileEntries = Directory.GetFiles(ModHelper.Manifest.ModFolderPath + "blocks");
@@ -47,11 +60,13 @@ namespace Cubes
                     {
                         fileName = fileName.Substring(0, fileName.Length - 2);
                         blockTextures[fileName] = (blockTextures[fileName].Item1, GetTexture(path, true), blockTextures[fileName].Item3);
-                    } else if (path.EndsWith("_s.png"))
+                    }
+                    else if (path.EndsWith("_s.png"))
                     {
                         fileName = fileName.Substring(0, fileName.Length - 2);
                         blockTextures[fileName] = (blockTextures[fileName].Item1, blockTextures[fileName].Item2, GetTexture(path));
-                    } else
+                    }
+                    else
                     {
                         blockTextures[fileName] = (GetTexture(path), null, null);
                     }
@@ -107,7 +122,7 @@ namespace Cubes
 
                     if (www.isNetworkError)
                     {
-                        ModHelper.Console.WriteLine(www.error, OWML.Common.MessageType.Error);
+                        ModHelper.Console.WriteLine(www.error, MessageType.Error);
                     }
                     else
                     {
@@ -127,16 +142,28 @@ namespace Cubes
             }
             text.text = "";
             text.transform.localPosition = new Vector3(-160, -120, 0);
+            death = Locator.GetDeathManager();
             yield return new WaitForEndOfFrame();
             placer = FindObjectOfType<FirstPersonManipulator>();
             if (placer.gameObject != Locator.GetPlayerCamera().gameObject)
-            {
                 vr = true;
+            ready = true;
+
+            if (IsMultiplayerClient)
+            {
+                ModHelper.Console.WriteLine("Requesting blocks from host...");
+                new RequestBlocksMessage { To = 0 }.Send();
+            }
+            else if (autoSave)
+            {
+                Load(false, true);
             }
         }
 
         private void Update()
         {
+            if (!ready) return;
+
             if (OWInput.IsNewlyPressed(InputLibrary.lockOn) && !OWInput.IsInputMode(InputMode.Menu) && (!vr || placer._interactReceiver == null && placer._interactZone == null && OWInput.IsInputMode(InputMode.Character)))
             {
                 if ((OWInput.IsPressed(InputLibrary.freeLook) || OWInput.IsPressed(InputLibrary.rollMode) && vr) && Physics.Raycast(placer.transform.position, placer.transform.forward, out RaycastHit hit, range, OWLayerMask.physicalMask | OWLayerMask.interactMask))
@@ -171,9 +198,15 @@ namespace Cubes
                     textTimer = 0f;
                 }
             }
-            if (Keyboard.current.oKey.wasPressedThisFrame)
+            if (saveTimer > 0f)
+            {
+                saveTimer -= Time.deltaTime;
+            }
+            bool autoSaveNow = autoSave && !IsMultiplayerClient && death != null && death._isDying && saveTimer <= 0;
+            if (Keyboard.current.oKey.wasPressedThisFrame || autoSaveNow)
             {
                 Save();
+                saveTimer = 10f;
             }
             if (Keyboard.current.pKey.wasPressedThisFrame)
             {
@@ -183,23 +216,21 @@ namespace Cubes
 
         void PlaceObjectRaycast()
         {
-            if (IsPlaceable(/*out Vector3 placeNormal,*/ out Vector3 placePoint, out OWRigidbody targetRigidbody))
+            if (IsPlaceable(out Vector3 placePoint, out OWRigidbody targetRigidbody))
             {
-                GameObject go = MakeCube(blockMaterials.ElementAt(block).Key, true /*targetRigidbody*/);
-                PlaceObject(/*placeNormal,*/ placePoint, go, targetRigidbody, blockMaterials.ElementAt(block).Key);
+                GameObject go = MakeCube(blockMaterials.ElementAt(block).Key, true);
+                PlaceObject(placePoint, go, targetRigidbody, blockMaterials.ElementAt(block).Key);
             }
         }
 
-        bool IsPlaceable(/*out Vector3 placeNormal,*/ out Vector3 placePoint, out OWRigidbody targetRigidbody)
+        bool IsPlaceable(out Vector3 placePoint, out OWRigidbody targetRigidbody)
         {
-            //placeNormal = Vector3.zero;
             placePoint = Vector3.zero;
             targetRigidbody = null;
 
             Vector3 forward = placer.transform.forward;
             if (Physics.Raycast(placer.transform.position, forward, out RaycastHit hit, range, OWLayerMask.physicalMask | OWLayerMask.interactMask))
             {
-                //placeNormal = hit.normal;
                 float back = 0.1f;
                 if (hit.collider.name == "cube")
                     back = 0.001f;
@@ -216,17 +247,13 @@ namespace Cubes
             return false;
         }
 
-        public void PlaceObject(/*Vector3 normal,*/ Vector3 point, GameObject gameObject, OWRigidbody targetRigidbody, string blockName, bool remote = false)
+        public void PlaceObject(Vector3 point, GameObject gameObject, OWRigidbody targetRigidbody, string blockName, bool remote = false)
         {
             Transform parent = targetRigidbody.transform;
             gameObject.SetActive(true);
             gameObject.transform.SetParent(parent);
             gameObject.transform.localPosition = point;
-            //if (targetRigidbody.name.Equals(gameObject.name)) {
             gameObject.transform.rotation = parent.rotation;
-            //} else {
-            //    gameObject.transform.rotation = Quaternion.LookRotation(normal, targetRigidbody.transform.up);
-            //}
 
             if (gameObject.GetComponentInChildren<OWCollider>() != null)
             {
@@ -234,18 +261,20 @@ namespace Cubes
                 gameObject.GetComponentInChildren<OWCollider>().enabled = true;
             }
 
+            Vector3Int roundedPoint = Vector3Int.RoundToInt(point);
             try
             {
-                placedBlocks.Add(targetRigidbody, new List<(Vector3Int, string, Transform)>() { (Vector3Int.RoundToInt(point), blockName, gameObject.transform) });
+                placedBlocks.Add(targetRigidbody, new List<(Vector3Int, string, Transform)>() { (roundedPoint, blockName, gameObject.transform) });
             }
             catch
             {
-                placedBlocks[targetRigidbody].Add((Vector3Int.RoundToInt(point), blockName, gameObject.transform));
+                placedBlocks[targetRigidbody].Add((roundedPoint, blockName, gameObject.transform));
             }
-            if (!remote)
-                new BlockPlacedMessage(GetPath(targetRigidbody.gameObject), Vector3Int.RoundToInt(point), blockName).Send();
+            if (!remote && QSBCore.IsInMultiplayer)
+                new BlockPlacedMessage(GetPath(targetRigidbody.gameObject), roundedPoint, blockName).Send();
         }
-        public GameObject MakeCube(string blockName, bool sound /*float size, OWRigidbody targetRigidbody*/)
+
+        public GameObject MakeCube(string blockName, bool sound)
         {
             GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
             if (sound)
@@ -262,7 +291,6 @@ namespace Cubes
                 List<AudioClip> clips = blockAudio[type];
                 audio.PlayOneShot(clips[Random.Range(0, clips.Count - 1)], 1f);
             }
-            //Vector3 fwd = transform.TransformDirection(Vector3.forward);
             cube.name = "cube";
             MeshRenderer renderer = cube.GetComponent<MeshRenderer>();
             renderer.sharedMaterial = blockMaterials[blockName];
@@ -273,25 +301,32 @@ namespace Cubes
         void DestroyBlock(OWRigidbody rb, GameObject go, Vector3Int pos = default, bool remote = false)
         {
             bool blockFound = false;
-            for (int i = 0; i < placedBlocks[rb].Count; i++)
+            if (placedBlocks.ContainsKey(rb))
             {
-                if (!remote && placedBlocks[rb][i].Item3 == go.transform || remote && placedBlocks[rb][i].Item1 == pos)
+                for (int i = 0; i < placedBlocks[rb].Count; i++)
                 {
-                    if (!remote)
+                    if (!remote && placedBlocks[rb][i].Item3 == go.transform || remote && placedBlocks[rb][i].Item1 == pos)
                     {
-                        new BlockPlacedMessage(GetPath(rb.gameObject), placedBlocks[rb][i].Item1, "").Send();
+                        if (!remote)
+                        {
+                            if (QSBCore.IsInMultiplayer)
+                                new BlockPlacedMessage(GetPath(rb.gameObject), placedBlocks[rb][i].Item1, "").Send();
+                        }
+                        else
+                        {
+                            go = placedBlocks[rb][i].Item3.gameObject;
+                        }
+                        placedBlocks[rb].RemoveAt(i);
+                        blockFound = true;
+                        break;
                     }
-                    else
-                    {
-                        go = placedBlocks[rb][i].Item3.gameObject;
-                    }
-                    placedBlocks[rb].RemoveAt(i);
-                    blockFound = true;
-                    break;
                 }
             }
             if (!blockFound)
-                ModHelper.Console.WriteLine("No block found to remove", OWML.Common.MessageType.Warning);
+            {
+                ModHelper.Console.WriteLine("No block found to remove", MessageType.Warning);
+                if (remote) return;
+            }
             Destroy(go);
         }
 
@@ -310,8 +345,11 @@ namespace Cubes
             placedBlocks.Clear();
         }
 
+        // ---------- Multiplayer ----------
+
         public void PlaceRemoteBlock(string path, Vector3Int pos, string blockName, bool destroyAll = false)
         {
+            if (!ready) return;
             if (destroyAll)
             {
                 DestroyAll();
@@ -320,7 +358,7 @@ namespace Cubes
             GameObject thing = GameObject.Find(path);
             if (thing == null)
             {
-                ModHelper.Console.WriteLine("Failed to place block on nonexistant object: " + path, OWML.Common.MessageType.Warning);
+                ModHelper.Console.WriteLine("Failed to place block on nonexistant object: " + path, MessageType.Warning);
                 return;
             }
             OWRigidbody rigidbody = thing.GetComponent<OWRigidbody>();
@@ -333,12 +371,46 @@ namespace Cubes
                 }
                 string oldName = blockName;
                 blockName = blockMaterials.ElementAt(0).Key;
-                ModHelper.Console.WriteLine("Failed to load unkown block \"" + oldName + "\", defaulting to " + blockName, OWML.Common.MessageType.Warning);
+                ModHelper.Console.WriteLine("Failed to load unkown block \"" + oldName + "\", defaulting to " + blockName, MessageType.Warning);
             }
             GameObject gobj = MakeCube(blockName, false);
             PlaceObject(pos, gobj, rigidbody, blockName, true);
         }
-        
+
+        public void SendAllBlocksTo(uint playerId)
+        {
+            if (!ready) return;
+            ModHelper.Console.WriteLine("Sending blocks to player " + playerId);
+            new BlockPlacedMessage(null, Vector3Int.zero, null, true) { To = playerId }.Send();
+            foreach (var rb in placedBlocks)
+            {
+                if (rb.Key == null) continue;
+                string path = GetPath(rb.Key.gameObject);
+                var live = rb.Value.Where(b => b.Item3 != null).ToList();
+                for (int i = 0; i < live.Count; i += SyncChunkSize)
+                {
+                    var chunk = live.Skip(i).Take(SyncChunkSize).ToList();
+                    new SyncBlocksMessage(path,
+                        chunk.Select(b => b.Item1).ToArray(),
+                        chunk.Select(b => b.Item2).ToArray())
+                    { To = playerId }.Send();
+                }
+            }
+        }
+
+        public void ReceiveSyncChunk(string path, Vector3Int[] positions, string[] names)
+        {
+            if (!ready) return;
+            for (int i = 0; i < positions.Length; i++)
+            {
+                if (path == spawn && safeZone.Contains(positions[i]))
+                    continue;
+                PlaceRemoteBlock(path, positions[i], names[i]);
+            }
+        }
+
+        // ---------- Saving ----------
+
         void Save(Dictionary<string, List<(SVector3Int, string)>> placedBlocksSave = null)
         {
             if (placedBlocksSave == null)
@@ -349,7 +421,7 @@ namespace Cubes
                     string objPath = GetPath(rb.Key.gameObject);
                     if (placedBlocksSave.ContainsKey(objPath))
                     {
-                        ModHelper.Console.WriteLine("Multiple objects with path: " + rb.Key + "\nIgnoring all but the first", OWML.Common.MessageType.Warning);
+                        ModHelper.Console.WriteLine("Multiple objects with path: " + rb.Key + "\nIgnoring all but the first", MessageType.Warning);
                         continue;
                     }
                     List<(SVector3Int, string)> list = new();
@@ -372,7 +444,7 @@ namespace Cubes
             textTimer = 1f;
         }
 
-        void Load(bool retry = false)
+        void Load(bool retry = false, bool safeSpawn = false)
         {
             if (!File.Exists(ModHelper.Manifest.ModFolderPath + "save.bin"))
             {
@@ -400,36 +472,37 @@ namespace Cubes
                 }
                 else
                 {
-                    ModHelper.Console.WriteLine("Your save's broken", OWML.Common.MessageType.Error);
+                    ModHelper.Console.WriteLine("Your save's broken", MessageType.Error);
+                    return;
                 }
             }
 
             DestroyAll();
-            new BlockPlacedMessage(null, Vector3Int.zero, null, true).Send();
+            if (QSBCore.IsInMultiplayer)
+                new BlockPlacedMessage(null, Vector3Int.zero, null, true).Send();
 
             foreach (var rb in placedBlocksSave)
             {
                 GameObject thing = GameObject.Find(rb.Key);
                 if (thing == null)
                 {
-                    ModHelper.Console.WriteLine("Failed to load blocks on nonexistant object: " + rb.Key, OWML.Common.MessageType.Warning);
+                    ModHelper.Console.WriteLine("Failed to load blocks on nonexistant object: " + rb.Key, MessageType.Warning);
                     continue;
                 }
                 OWRigidbody rigidbody = thing.GetComponent<OWRigidbody>();
-                List<(Vector3Int, string, Transform)> list = new();
                 foreach (var blk in rb.Value)
                 {
+                    if (safeSpawn && rb.Key == spawn && safeZone.Contains(blk.Item1))
+                        continue;
                     string blockName = blk.Item2;
                     if (!blockMaterials.ContainsKey(blockName))
                     {
                         blockName = blockMaterials.ElementAt(0).Key;
-                        ModHelper.Console.WriteLine("Failed to load unkown block \"" + blk.Item2 + "\", defaulting to " + blockName, OWML.Common.MessageType.Warning);
+                        ModHelper.Console.WriteLine("Failed to load unkown block \"" + blk.Item2 + "\", defaulting to " + blockName, MessageType.Warning);
                     }
                     GameObject go = MakeCube(blockName, false);
                     PlaceObject(blk.Item1, go, rigidbody, blockName);
-                    list.Add((blk.Item1, blockName, go.transform));
                 }
-                placedBlocks[rigidbody] = list;
             }
             ModHelper.Console.WriteLine("Blocks loaded!");
             text.text = "Blocks loaded!";
@@ -453,14 +526,15 @@ namespace Cubes
                 List<(SVector3Int, string)> list = new();
                 foreach (var blk in rb.Value)
                 {
-                    string blockName;
+                    string blockName = "";
                     try
                     {
                         blockName = blockMaterials.ElementAt(blk.Item2).Key;
-                    } catch
+                    }
+                    catch
                     {
                         blockName = blockMaterials.ElementAt(0).Key;
-                        ModHelper.Console.WriteLine("Failed to load unkown block, defaulting to " + blockName, OWML.Common.MessageType.Warning);
+                        ModHelper.Console.WriteLine("Failed to load unknown block, defaulting to " + blockName, MessageType.Warning);
                     }
                     list.Add((blk.Item1, blockName));
                 }
@@ -470,6 +544,11 @@ namespace Cubes
             ModHelper.Console.WriteLine("Upgrading save...");
             Save(placedBlocksSaveNew);
             Load(true);
+        }
+
+        public override void Configure(IModConfig config)
+        {
+            autoSave = config.GetSettingsValue<bool>("autoSave");
         }
 
         public static Vector3 Round(Vector3 vector3, int decimalPlaces = 0)
@@ -507,7 +586,6 @@ namespace Cubes
             string name = go.name;
             while (go.transform.parent != null)
             {
-
                 go = go.transform.parent.gameObject;
                 name = go.name + "/" + name;
             }

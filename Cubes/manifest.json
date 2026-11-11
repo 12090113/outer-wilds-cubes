@@ -4,7 +4,7 @@
   "name": "Block Placing",
   "uniqueName": "12090113.Cubes",
   "version": "0.3.6",
-  "owmlVersion": "2.9.0",
+  "owmlVersion": "2.16.3",
   "pathsToPreserve": [ "blocks", "save.bin" ],
   "dependencies": [ "Raicuparta.QuantumSpaceBuddies" ]
 }
